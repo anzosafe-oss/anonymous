@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Anonymous</title><meta name="anonymous-version" content="0.3.5"><meta name="theme-color" content="#0b1425">
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Anonymous</title><meta name="anonymous-version" content="0.3.6"><meta name="theme-color" content="#0b1425">
 <style>
 :root{font:16px/1.45 system-ui,sans-serif;color-scheme:dark;--bg:#0b1425;--panel:#111e32;--edge:#293950;--text:#fff;--muted:#a8b6cc;--red:#bd1733;--blue:#2163bf}
 :root.light{color-scheme:light;--bg:#edf2fa;--panel:#fff;--edge:#c8d5e6;--text:#111e32;--muted:#475d78}
@@ -132,7 +132,7 @@ async function loadAccount(session,{refresh=false}={}){
   return true;
 }
 function showPasswordForm(isRecovery){
-  openDialog('<form class="stack"><h2>Setează parola</h2><label>Parolă nouă<input type="password" name="password" autocomplete="new-password" minlength="12" required></label><label>Confirmă parola<input type="password" name="confirmation" autocomplete="new-password" minlength="12" required></label><p class="error" role="alert"></p><button class="primary">Salvează parola</button><button type="button" data-close>Închide</button></form>');
+  openDialog('<form class="stack"><h2>Setează parola</h2><label>Parolă nouă<input type="password" name="password" autocomplete="new-password" required></label><label>Confirmă parola<input type="password" name="confirmation" autocomplete="new-password" required></label><p class="error" role="alert"></p><button class="primary">Salvează parola</button><button type="button" data-close>Închide</button></form>');
   const form=modal.querySelector('form');
   form.onsubmit=async e=>{
     e.preventDefault();
