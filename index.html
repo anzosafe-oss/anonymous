@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ANONIMOUS — Agenda privată</title>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Anonymous</title>
 <style>
 :root{font:16px/1.45 system-ui,sans-serif;color-scheme:dark;--bg:#0b1425;--panel:#111e32;--edge:#293950;--text:#fff;--muted:#a8b6cc;--red:#bd1733;--blue:#2163bf}
 :root.light{color-scheme:light;--bg:#edf2fa;--panel:#fff;--edge:#c8d5e6;--text:#111e32;--muted:#475d78}
@@ -57,7 +57,7 @@ const options = (items, selected) => items.map(([v,l])=>'<option value="'+safe(v
 let user, model, screen='today', day=today, weekly=false, toastTimer;
 function defaultPrefs(){
   return {duration:45,services:'Tuns\nBarbă\nTuns + barbă',theme:'dark',
-    hours:days.map((_,i)=>({open:i<6,start:'09:00',end:'18:00'})), pauses:'13:00–14:00',off:'',blocks:''};
+    hours:days.map((_,i)=>({open:i<6,start:'09:00',end:'18:00'})), pauses:'13:00–14:00',off:''};
 }
 async function loadAccount(session){
   const id=session.user.id;
@@ -141,10 +141,6 @@ function intervals(date) {
   const start=minutes(hours.start),end=minutes(hours.end);
   const parse=line=>line.split(/[–-]/).map(s=>minutes(s.trim()));
   const blocked=parts(model.prefs.pauses).map(line=>[...parse(line),'Pauză']);
-  for(const line of parts(model.prefs.blocks)) {
-    const [when,...rest]=line.split(/\s+/);
-    if(when===date) blocked.push([...parse(rest.join(' ')),'Blocat']);
-  }
   return {closed,start,end,blocked};
 }
 function daily(date){return model.bookings.filter(b=>b.date===date && b.status==='active').sort((a,b)=>a.start-b.start)}
@@ -303,26 +299,48 @@ function settings(){
   const main=document.querySelector('#content');
   const times=Array.from({length:97},(_,i)=>[time(i*15),time(i*15)]);
   main.innerHTML='<h1>Setări</h1><form class="stack" id="settings"><div class="settings-grid"><section class="panel stack"><h2>Program de lucru</h2>'+days.map((name,i)=>'<div class="schedule"><label class="check"><input type="checkbox" name="open'+i+'" '+(p.hours[i].open?'checked':'')+'>'+name+'</label><select name="start'+i+'" aria-label="'+name+' de la">'+options(times,p.hours[i].start)+'</select><select name="end'+i+'" aria-label="'+name+' până la">'+options(times,p.hours[i].end)+'</select></div>').join('')+'</section>'+
-    '<section class="panel stack"><h2>Preferințe</h2><label>Durată implicită<select name="duration">'+options(durations.map(d=>[d,d+' min']),p.duration)+'</select></label><label>Temă<select name="theme">'+options([['dark','Dark'],['light','Light']],p.theme)+'</select></label><label>Servicii (unul pe rând)<textarea name="services">'+safe(p.services)+'</textarea></label></section>'+
-    '<section class="panel stack"><h2>Pauze și blocaje</h2><label>Pauze recurente (HH:MM–HH:MM)<textarea name="pauses">'+safe(p.pauses)+'</textarea></label><label>Blocaje (AAAA-LL-ZZ HH:MM–HH:MM)<textarea name="blocks">'+safe(p.blocks)+'</textarea></label><label>Zile libere sau concedii (AAAA-LL-ZZ sau început / sfârșit)<textarea name="off">'+safe(p.off)+'</textarea></label></section>'+
+    '<section class="panel stack"><h2>Preferințe</h2><label>Durată implicită<select name="duration">'+options(durations.slice(0,6).map(d=>[d,d+' min']),Math.min(p.duration,90))+'</select></label><label>Temă<select name="theme">'+options([['dark','Dark'],['light','Light']],p.theme)+'</select></label><label>Servicii (unul pe rând)<textarea name="services">'+safe(p.services)+'</textarea></label></section>'+
+    '<section class="panel stack"><h2>Pauze</h2><label>Pauze recurente (HH:MM–HH:MM)<textarea name="pauses">'+safe(p.pauses)+'</textarea></label><h2>Concedii și zile libere</h2><div class="stack" id="leave-periods"></div><div><button type="button" id="add-leave">+ Adaugă perioadă</button></div></section>'+
     '<section class="panel stack"><h2>Cont</h2><label>Alias afișat<input name="display" value="'+safe(p.name)+'" maxlength="60" aria-describedby="alias-help"></label><small id="alias-help">Apare în antetul agendei. Dacă lași câmpul gol, se afișează numele contului.</small><p class="muted">E-mail: '+safe(accountEmail)+'</p><button id="changePassword" type="button">Schimbă parola</button></section></div><div class="error" role="alert"></div><div><button class="primary">Salvează setările</button></div></form>';
   const form=main.querySelector('form');
+  const periods=form.querySelector('#leave-periods');
+  function addPeriod(first='',last=''){
+    const row=document.createElement('div');
+    row.className='stack';
+    row.innerHTML='<div class="field-grid"><label>De la<input name="leaveFrom" placeholder="zz.ll.aaaa" maxlength="10" value="'+safe(displayDate(first))+'"></label><label>Până la<input name="leaveTo" placeholder="zz.ll.aaaa" maxlength="10" value="'+safe(displayDate(last))+'"></label></div><div><button type="button">Elimină perioada</button></div>';
+    row.querySelector('button').onclick=()=>row.remove();
+    periods.append(row);
+  }
+  for(const entry of parts(p.off)){
+    const [first,last=first]=entry.split(/\s*\/\s*/);
+    addPeriod(first,last);
+  }
+  if(!periods.children.length)addPeriod();
+  form.querySelector('#add-leave').onclick=()=>addPeriod();
   form.theme.onchange=()=>document.documentElement.className=form.theme.value==='light'?'light':'';
   main.querySelector('#changePassword').onclick=()=>showPasswordForm(false);
   form.onsubmit=async e=>{
     e.preventDefault();
     const hours=days.map((_,i)=>({open:form['open'+i].checked,start:form['start'+i].value,end:form['end'+i].value}));
-    const validDate=s=>/^\d{4}-\d{2}-\d{2}$/.test(s)&&!isNaN(dateAt(s))&&dateAt(s).toISOString().slice(0,10)===s;
     function validInterval(line){
       const slots=line.split(/[–-]/).map(s=>s.trim());
       return slots.length===2&&slots.every(s=>times.some(([value])=>value===s))&&slots[1]>slots[0];
     }
-    const bad=hours.some(h=>h.open&&h.start>=h.end)||
-      parts(form.pauses.value).some(s=>!validInterval(s))||
-      parts(form.blocks.value).some(s=>!validDate(s.slice(0,10))||!validInterval(s.slice(11)))||
-      parts(form.off.value).some(s=>{const dates=s.split(/\s*\/\s*/);return dates.length>2||!dates.every(validDate)||(dates.length===2&&dates[0]>dates[1])});
+    const off=[];
+    for(const row of periods.children){
+      const first=row.querySelector('[name=leaveFrom]').value.trim();
+      const last=row.querySelector('[name=leaveTo]').value.trim();
+      if(!first&&!last)continue;
+      const dates=[first,last].map(value=>value.split('.').reverse().join('-'));
+      if(!/^\d{2}\.\d{2}\.\d{4}$/.test(first)||!/^\d{2}\.\d{2}\.\d{4}$/.test(last)||!dates.every(validCalendarDate)||dates[0]>dates[1]){
+        form.querySelector('.error').textContent='Completează ambele date în formatul zz.ll.aaaa. Data de început trebuie să fie cel târziu în ziua de sfârșit.';
+        return;
+      }
+      off.push(dates.join(' / '));
+    }
+    const bad=hours.some(h=>h.open&&h.start>=h.end)||parts(form.pauses.value).some(s=>!validInterval(s));
     if(bad){form.querySelector('.error').textContent='Verifică datele și intervalele. Orele trebuie să respecte pasul de 15 minute.';return}
-    const settings={duration:Number(form.duration.value),theme:form.theme.value,services:form.services.value,pauses:form.pauses.value,blocks:form.blocks.value,off:form.off.value,hours};
+    const settings={duration:Number(form.duration.value),theme:form.theme.value,services:form.services.value,pauses:form.pauses.value,off:off.join('\n'),hours};
     const alias=form.display.value.trim();
     e.submitter.disabled=true;
     const {error}=await database.from('profiles').update({alias,settings}).eq('user_id',user).select('user_id').single();
