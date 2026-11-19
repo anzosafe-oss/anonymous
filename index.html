@@ -20,7 +20,11 @@ header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px so
 .profile-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.9rem}
 .profile button{flex:none;margin-left:3px;padding:5px 9px;background:var(--bg);font-size:.83rem}
 @media(max-width:650px){.profile{gap:5px;padding-left:4px}.profile-avatar{flex-basis:25px;height:25px;font-size:.65rem}.profile-name{font-size:.78rem}.profile button{margin-left:0;padding-inline:6px}}
-</style></head><body><div class="stripe"></div><noscript><p class="panel">Agenda demo are nevoie de JavaScript. Descarcă fișierul HTML și deschide-l în Chrome, Edge sau Safari.</p></noscript><div id="app"></div><dialog id="modal"></dialog><div id="toast" class="toast" role="status" hidden></div>
+</style><link rel="icon" type="image/png" sizes="16x16" href="./favicon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
+<link rel="manifest" href="./manifest.webmanifest">
+</head><body><div class="stripe"></div><noscript><p class="panel">Agenda demo are nevoie de JavaScript. Descarcă fișierul HTML și deschide-l în Chrome, Edge sau Safari.</p></noscript><div id="app"></div><dialog id="modal"></dialog><div id="toast" class="toast" role="status" hidden></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.1/dist/umd/supabase.js"></script>
 <script>
 const app = document.querySelector('#app');
