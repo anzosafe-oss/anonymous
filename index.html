@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Anonymous</title><meta name="theme-color" content="#0b1425">
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Anonymous</title><meta name="anonymous-version" content="0.3.5"><meta name="theme-color" content="#0b1425">
 <style>
 :root{font:16px/1.45 system-ui,sans-serif;color-scheme:dark;--bg:#0b1425;--panel:#111e32;--edge:#293950;--text:#fff;--muted:#a8b6cc;--red:#bd1733;--blue:#2163bf}
 :root.light{color-scheme:light;--bg:#edf2fa;--panel:#fff;--edge:#c8d5e6;--text:#111e32;--muted:#475d78}
@@ -97,6 +97,9 @@ const authClient = window.supabase?.createClient('https://caajrctjlxehhofuwhag.s
 });
 const database = authClient?.schema('anonymous');
 const appUrl = location.origin + location.pathname;
+const appVersion=document.querySelector('meta[name="anonymous-version"]').content;
+const resumeKey='anonymous-view-after-update';
+let settingsDirty=false, refreshing=false, checkingVersion=false;
 let profile, accountEmail, recovery = false;
 const durations = Array.from({length:32},(_,i)=>(i+1)*15);
 const days = ['Luni','Marți','Miercuri','Joi','Vineri','Sâmbătă','Duminică'];
@@ -117,12 +120,12 @@ async function loadAccount(session,{refresh=false}={}){
   const {data: bookings,error: bookingError}=await database.from('appointments')
     .select('id,day,start_minute,duration,client,phone,service,notes,status').eq('user_id',id);
   if(bookingError) throw new Error('Programările nu s-au putut încărca.');
-  if(refresh && (user!==id || modal.open || screen==='settings'))return false;
+  if(refresh && (user!==id || modal.open || settingsDirty))return false;
   const scrollTop=refresh ? app.querySelector('.frame')?.scrollTop || 0 : 0;
   user=id;profile=data;accountEmail=session.user.email;
   model={prefs:{...defaultPrefs(),...profile.settings,name:profile.alias},bookings:bookings.map(({day,start_minute,...rest})=>({...rest,date:day,start:start_minute}))};
   today=currentDay();
-  if(!refresh){screen='today';weekly=false}
+  if(!refresh){screen='today';day=today;weekly=false;restoreUpdatedView(id)}
   if(screen==='today')day=today;
   render();
   app.querySelector('.frame').scrollTop=scrollTop;
@@ -154,6 +157,7 @@ const brand = '<div class="brand"><span class="brand-logo"><img src="data:image/
 function login(){
   delete document.body.dataset.stripe;
   app.classList.remove('agenda-shell');
+  settingsDirty=false;
   document.documentElement.className='';
   document.querySelector('meta[name="theme-color"]').content='#0b1425';
   app.innerHTML='<main class="login"><div class="portrait">'+brand+'</div><section class="login-card"><h2>Autentificare</h2><form id="login"><label>E-mail<input name="user" type="email" autocomplete="username" required></label><label>Parolă<span class="field-action"><input id="password" name="password" type="password" autocomplete="current-password" required><button type="button" id="visibility">Arată</button></span></label><div class="error" role="alert"></div><button class="primary">Intră în agendă</button></form><button id="recover">Recuperează parola</button></section></main>';
@@ -247,7 +251,7 @@ function render(){
   const tabs=[['today','clock','Azi'],['calendar','calendar','Calendar'],['add','plus','Adaugă'],['history','history','Istoric'],['settings','settings','Setări']];
   document.body.dataset.stripe=stripeFor(profile.display_name,accountEmail);
   const alias=model.prefs.name?.trim() || profile.display_name;
-  app.innerHTML='<header><div class="header-inner">'+brand+'<button id="logout" aria-label="Deconectare" title="Deconectare">'+iconSvg('logout')+'<span class="logout-alias">'+safe(alias)+'</span></button></div></header><div class="frame"><nav class="nav" aria-label="Meniu principal">'+tabs.map(([id,icon,label])=>'<button data-tab="'+id+'" class="'+(id==='add'?'primary':id===screen?'active':'')+'" '+(id===screen?'aria-current="page"':'')+'><span class="symbol" aria-hidden="true">'+iconSvg(icon)+'</span>'+label+'</button>').join('')+'<small>v0.3.4</small></nav><main class="content" id="content"></main></div>';
+  app.innerHTML='<header><div class="header-inner">'+brand+'<button id="logout" aria-label="Deconectare" title="Deconectare">'+iconSvg('logout')+'<span class="logout-alias">'+safe(alias)+'</span></button></div></header><div class="frame"><nav class="nav" aria-label="Meniu principal">'+tabs.map(([id,icon,label])=>'<button data-tab="'+id+'" class="'+(id==='add'?'primary':id===screen?'active':'')+'" '+(id===screen?'aria-current="page"':'')+'><span class="symbol" aria-hidden="true">'+iconSvg(icon)+'</span>'+label+'</button>').join('')+'<small>v'+appVersion+'</small></nav><main class="content" id="content"></main></div>';
   document.querySelector('#logout').onclick=async e=>{
     e.currentTarget.disabled=true;
     await authClient.auth.signOut({scope:'local'});
@@ -258,6 +262,7 @@ function render(){
     const nextScreen=btn.dataset.tab;
     if(nextScreen==='calendar' && screen!=='calendar') weekly=true;
     screen=nextScreen;
+    settingsDirty=false;
     if(screen==='today'){day=today;weekly=false}
     render();app.querySelector('.frame').scrollTop=0;
   });
@@ -415,17 +420,25 @@ function settings(){
   const p=model.prefs;
   const main=document.querySelector('#content');
   const times=Array.from({length:97},(_,i)=>[time(i*15),time(i*15)]);
-  main.innerHTML='<h1>Setări</h1><form class="stack" id="settings"><div class="settings-grid"><section class="panel stack"><h2>Program de lucru</h2>'+days.map((name,i)=>'<div class="schedule"><label class="check"><input type="checkbox" name="open'+i+'" '+(p.hours[i].open?'checked':'')+'>'+name+'</label><select name="start'+i+'" aria-label="'+name+' de la">'+options(times,p.hours[i].start)+'</select><select name="end'+i+'" aria-label="'+name+' până la">'+options(times,p.hours[i].end)+'</select></div>').join('')+'</section>'+
+  main.innerHTML='<div class="title-row"><div><h1>Setări</h1><p class="muted">Versiunea aplicației · v'+appVersion+'</p></div><button id="refresh-settings" type="button">Actualizează</button></div><form class="stack" id="settings"><div class="settings-grid"><section class="panel stack"><h2>Program de lucru</h2>'+days.map((name,i)=>'<div class="schedule"><label class="check"><input type="checkbox" name="open'+i+'" '+(p.hours[i].open?'checked':'')+'>'+name+'</label><select name="start'+i+'" aria-label="'+name+' de la">'+options(times,p.hours[i].start)+'</select><select name="end'+i+'" aria-label="'+name+' până la">'+options(times,p.hours[i].end)+'</select></div>').join('')+'</section>'+
     '<section class="panel stack"><h2>Preferințe</h2><label>Durată implicită<select name="duration">'+options(durations.slice(0,6).map(d=>[d,d+' min']),Math.min(p.duration,90))+'</select></label><label>Temă<select name="theme">'+options([['dark','Dark'],['light','Light']],p.theme)+'</select></label><label>Servicii (unul pe rând)<textarea name="services">'+safe(p.services)+'</textarea></label></section>'+
     '<section class="panel stack"><h2>Pauze</h2><label>Pauze recurente (HH:MM–HH:MM)<textarea name="pauses">'+safe(p.pauses)+'</textarea></label><h2>Concedii și zile libere</h2><div class="stack" id="leave-periods"></div><div><button type="button" id="add-leave">'+iconSvg('plus')+' Adaugă perioadă</button></div></section>'+
     '<section class="panel stack"><h2>Cont</h2><label>Alias afișat<input name="display" value="'+safe(p.name)+'" maxlength="60" aria-describedby="alias-help"></label><small id="alias-help">Apare în antetul agendei. Dacă lași câmpul gol, se afișează numele contului.</small><p class="muted">E-mail: '+safe(accountEmail)+'</p><button id="changePassword" type="button">Schimbă parola</button></section></div><div class="error" role="alert"></div><div><button class="primary">Salvează setările</button></div></form>';
   const form=main.querySelector('form');
+  form.addEventListener('input',()=>{settingsDirty=true});
+  form.addEventListener('change',()=>{settingsDirty=true});
+  main.querySelector('#refresh-settings').onclick=async()=>{
+    if(settingsDirty){notice('Salvează setările înainte de actualizare.');return}
+    try{
+      if(await refreshAgenda())notice('Agenda a fost actualizată');
+    }catch{notice('Actualizarea nu a reușit.')}
+  };
   const periods=form.querySelector('#leave-periods');
   function addPeriod(first='',last=''){
     const row=document.createElement('div');
     row.className='stack';
     row.innerHTML='<div class="field-grid"><label>De la<input name="leaveFrom" placeholder="zz.ll.aaaa" maxlength="10" value="'+safe(displayDate(first))+'"></label><label>Până la<input name="leaveTo" placeholder="zz.ll.aaaa" maxlength="10" value="'+safe(displayDate(last))+'"></label></div><div><button type="button">Elimină perioada</button></div>';
-    row.querySelector('button').onclick=()=>row.remove();
+    row.querySelector('button').onclick=()=>{settingsDirty=true;row.remove()};
     periods.append(row);
   }
   for(const entry of parts(p.off)){
@@ -433,7 +446,7 @@ function settings(){
     addPeriod(first,last);
   }
   if(!periods.children.length)addPeriod();
-  form.querySelector('#add-leave').onclick=()=>addPeriod();
+  form.querySelector('#add-leave').onclick=()=>{settingsDirty=true;addPeriod()};
   form.theme.onchange=()=>document.documentElement.className=form.theme.value==='light'?'light':'';
   main.querySelector('#changePassword').onclick=()=>showPasswordForm(false);
   form.onsubmit=async e=>{
@@ -463,8 +476,61 @@ function settings(){
     const {error}=await database.from('profiles').update({alias,settings}).eq('user_id',user).select('user_id').single();
     e.submitter.disabled=false;
     if(error){form.querySelector('.error').textContent='Setările nu s-au putut salva.';return}
-    model.prefs={...settings,name:alias};render();notice('Setări salvate');
+    model.prefs={...settings,name:alias};settingsDirty=false;render();notice('Setări salvate');
   };
+}
+function restoreUpdatedView(id){
+  try{
+    const view=JSON.parse(sessionStorage.getItem(resumeKey));
+    sessionStorage.removeItem(resumeKey);
+    if(view?.user!==id||!['today','calendar','history','settings'].includes(view.screen))return;
+    screen=view.screen;
+    if(validCalendarDate(view.day))day=view.day;
+    weekly=view.weekly===true;
+  }catch{}
+}
+function canReloadApp(){
+  return !modal.open && !settingsDirty && !location.hash && !recovery &&
+    !app.querySelector('#login input[name="user"]')?.value &&
+    !app.querySelector('#login input[name="password"]')?.value;
+}
+async function checkAppUpdate(){
+  if(checkingVersion||!canReloadApp())return false;
+  checkingVersion=true;
+  try{
+    const url=new URL(appUrl);
+    url.searchParams.set('refresh',Date.now());
+    const response=await fetch(url,{cache:'no-store',signal:AbortSignal.timeout(7000)});
+    if(!response.ok)return false;
+    const html=await response.text();
+    const newest=html.match(/<meta name="anonymous-version" content="(\d+\.\d+\.\d+)">/)?.[1];
+    if(!newest||newest.localeCompare(appVersion,'en',{numeric:true})<=0||!canReloadApp())return false;
+    if(user){
+      try{sessionStorage.setItem(resumeKey,JSON.stringify({user,screen,day,weekly}))}catch{}
+    }
+    location.replace(url.href);
+    return true;
+  }catch{return false}
+  finally{checkingVersion=false}
+}
+async function refreshAgenda(onLoading){
+  if(refreshing||modal.open||settingsDirty)return false;
+  refreshing=true;
+  try{
+    onLoading?.();
+    if(await checkAppUpdate())return false;
+    if(!user){
+      if(canReloadApp()){
+        const url=new URL(appUrl);
+        url.searchParams.set('refresh',Date.now());
+        location.replace(url.href);
+      }
+      return false;
+    }
+    const {data,error}=await authClient.auth.getSession();
+    if(error||!data.session)throw new Error('Sesiune indisponibilă');
+    return await loadAccount(data.session,{refresh:true});
+  }finally{refreshing=false}
 }
 function bindPullRefresh(){
   if(navigator.maxTouchPoints<1)return;
@@ -476,10 +542,10 @@ function bindPullRefresh(){
   document.body.append(indicator);
   const label=indicator.querySelector('span');
   const threshold=88;
-  let start,distance=0,refreshing=false,hideTimer;
+  let start,distance=0,hideTimer;
   const scroller=()=>app.querySelector('.frame') || app;
   const atTop=()=>scroller().scrollTop<=1;
-  const blocked=()=>refreshing || document.hidden || modal.open || (user && screen==='settings');
+  const blocked=()=>refreshing || document.hidden || modal.open || settingsDirty;
   function reset(){
     start=null;distance=0;
     if(!refreshing){clearTimeout(hideTimer);indicator.hidden=true}
@@ -511,16 +577,12 @@ function bindPullRefresh(){
     const run=!event.touches.length&&distance>=threshold&&!blocked()&&atTop();
     reset();
     if(!run)return;
-    refreshing=true;show('loading','Se actualizează…');
     try{
-      if(!user){location.reload();return}
-      const {data,error}=await authClient.auth.getSession();
-      if(error||!data.session)throw new Error('Sesiune indisponibilă');
-      const updated=await loadAccount(data.session,{refresh:true});
+      const updated=await refreshAgenda(()=>show('loading','Se actualizează…'));
       if(updated)show('done','Agenda a fost actualizată');
       else indicator.hidden=true;
     } catch {show('done','Actualizarea nu a reușit')}
-    finally {refreshing=false;hideTimer=setTimeout(reset,1400)}
+    finally {hideTimer=setTimeout(reset,1400)}
   },{passive:true});
   document.addEventListener('touchcancel',reset,{passive:true});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)reset()});
@@ -528,6 +590,9 @@ function bindPullRefresh(){
 
 login();
 bindPullRefresh();
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden&&!refreshing)void checkAppUpdate();
+});
 if(authClient){
   const linkType=new URLSearchParams(location.hash.slice(1)).get('type');
   recovery=linkType==='recovery'||linkType==='invite';
