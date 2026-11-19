@@ -72,6 +72,9 @@ body{position:fixed;inset:0;min-height:0;display:flex;flex-direction:column}
     padding-inline:max(26px,calc((100% - 1250px) / 2 + 26px));
     scrollbar-color:var(--scroll-thumb,#e1263d) var(--bg);
   }
+  @supports selector(::-webkit-scrollbar-thumb){
+    .agenda-shell .frame{scrollbar-color:auto}
+  }
   .agenda-shell .frame::-webkit-scrollbar{width:12px}
   .agenda-shell .frame::-webkit-scrollbar-track{background:var(--bg)}
   .agenda-shell .frame::-webkit-scrollbar-thumb{background:var(--scroll-thumb,#e1263d);border-radius:0}
