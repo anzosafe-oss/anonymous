@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Anonymous</title><meta name="anonymous-version" content="0.3.12"><meta name="theme-color" content="#0b1425">
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Anonymous</title><meta name="anonymous-version" content="0.3.13"><meta name="theme-color" content="#0b1425">
 <style>
 :root{font:16px/1.45 system-ui,sans-serif;color-scheme:dark;--bg:#0b1425;--panel:#111e32;--edge:#293950;--text:#fff;--muted:#a8b6cc;--red:#bd1733;--blue:#2163bf}
 :root.light{color-scheme:light;--bg:#edf2fa;--panel:#fff;--edge:#c8d5e6;--text:#111e32;--muted:#475d78}
@@ -127,6 +127,8 @@ function defaultPrefs(){
 }
 async function loadAccount(session,{refresh=false}={}){
   const id=session.user.id;
+  const access=await database.rpc('visit');
+  if(access.error){await authClient.auth.signOut({scope:'local'});throw new Error('Accesul la agenda Anonimous nu este activ sau nu poate fi verificat. Contactează administratorul.');}
   const {data, error}=await database.from('profiles').select('display_name,alias,settings').eq('user_id',id).maybeSingle();
   if(error) throw new Error('Agenda nu s-a putut încărca. Încearcă din nou.');
   if(!data){
@@ -643,7 +645,7 @@ document.addEventListener('visibilitychange',()=>{
 });
 if(authClient){
   const linkType=new URLSearchParams(location.hash.slice(1)).get('type');
-  recovery=linkType==='recovery'||linkType==='invite';
+  recovery=linkType==='recovery'||linkType==='invite'||new URLSearchParams(location.search).get('type')==='invite';
   authClient.auth.onAuthStateChange((event,session)=>{
     if(event==='PASSWORD_RECOVERY') recovery=true;
     if(event==='INITIAL_SESSION' || event==='PASSWORD_RECOVERY'){
