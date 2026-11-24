@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Anonymous</title><meta name="anonymous-version" content="0.3.13"><meta name="theme-color" content="#0b1425">
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Anonymous</title><meta name="anonymous-version" content="0.3.14"><meta name="theme-color" content="#0b1425">
 <style>
 :root{font:16px/1.45 system-ui,sans-serif;color-scheme:dark;--bg:#0b1425;--panel:#111e32;--edge:#293950;--text:#fff;--muted:#a8b6cc;--red:#bd1733;--blue:#2163bf}
 :root.light{color-scheme:light;--bg:#edf2fa;--panel:#fff;--edge:#c8d5e6;--text:#111e32;--muted:#475d78}
@@ -147,10 +147,37 @@ async function loadAccount(session,{refresh=false}={}){
   if(screen==='today')day=today;
   render();
   app.querySelector('.frame').scrollTop=scrollTop;
+  if(!profile.alias?.trim()&&!modal.open)showInitialAlias(id);
   return true;
 }
-function showPasswordForm(isRecovery){
-  openDialog('<form class="stack"><h2>Setează parola</h2><label>Parolă nouă<input type="password" name="password" autocomplete="new-password" required></label><label>Confirmă parola<input type="password" name="confirmation" autocomplete="new-password" required></label><p class="error" role="alert"></p><button class="primary">Salvează parola</button><button type="button" data-close>Închide</button></form>');
+async function saveInitialAlias(uid,alias){
+  alias=String(alias||'').trim();
+  if(!alias||Array.from(alias).length>60)throw new Error('Completează un alias de maximum 60 de caractere.');
+  const {error}=await database.from('profiles').update({alias}).eq('user_id',uid).select('user_id').single();
+  if(error)throw new Error('Aliasul nu a putut fi salvat. Verifică conexiunea și reîncearcă.');
+  return alias;
+}
+function showInitialAlias(uid){
+  openDialog('<form class="stack"><h2>Alege aliasul tău</h2><p class="muted">Apare în agenda Anonymous. Te conectezi în continuare cu e-mail și parolă.</p><label>Alias<input name="alias" maxlength="60" autocomplete="nickname" required></label><p class="error" role="alert"></p><button class="primary">Salvează și continuă</button></form>');
+  modal.oncancel=e=>e.preventDefault();
+  const form=modal.querySelector('form');
+  form.onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true;try{const alias=await saveInitialAlias(uid,form.elements.alias.value);if(user!==uid)return;profile.alias=alias;model.prefs.name=alias;modal.close();render();}catch(error){form.querySelector('.error').textContent=error.message}finally{e.submitter.disabled=false}};
+}
+let accountSetupOpening=false;
+async function preparePasswordSetup(session){
+  if(accountSetupOpening||modal.open)return;
+  accountSetupOpening=true;
+  try{
+  const access=await database.rpc('visit');
+  if(access.error)throw new Error('Accesul la agendă nu poate fi verificat. Contactează administratorul.');
+  const {data,error}=await database.from('profiles').select('alias').eq('user_id',session.user.id).single();
+  if(error)throw new Error('Contul nu a putut fi verificat. Reîncarcă pagina sau cere un link nou.');
+  showPasswordForm(true,{uid:session.user.id,needsAlias:!data.alias?.trim()});
+  }finally{accountSetupOpening=false}
+}
+function showPasswordForm(isRecovery,setup=null){
+  openDialog('<form class="stack"><h2>'+((setup?.needsAlias)?'Configurează contul':'Setează parola')+'</h2>'+((setup?.needsAlias)?'<p class="muted">Aliasul apare în agendă. Conectarea rămâne cu e-mail și parolă.</p><label>Alias<input name="alias" maxlength="60" autocomplete="nickname" required></label>':'')+'<label>Parolă nouă<input type="password" name="password" autocomplete="new-password" required></label><label>Confirmă parola<input type="password" name="confirmation" autocomplete="new-password" required></label><p class="error" role="alert"></p><button class="primary">'+(setup?.needsAlias?'Salvează și continuă':'Salvează parola')+'</button>'+(setup?.needsAlias?'':'<button type="button" data-close>Închide</button>')+'</form>');
+  if(setup?.needsAlias)modal.oncancel=e=>e.preventDefault();
   const form=modal.querySelector('form');
   form.onsubmit=async e=>{
     e.preventDefault();
@@ -158,8 +185,11 @@ function showPasswordForm(isRecovery){
     const password=values.get('password');
     const alert=form.querySelector('.error');
     if(password!==values.get('confirmation')){alert.textContent='Parolele nu coincid.';return}
+    if(setup?.needsAlias&&!String(values.get('alias')||'').trim()){alert.textContent='Completează aliasul.';return}
     e.submitter.disabled=true;
     try {
+      if(setup?.needsAlias)await saveInitialAlias(setup.uid,values.get('alias'));
+      if(setup){const current=await authClient.auth.getSession();if(current.data.session?.user.id!==setup.uid)throw new Error('Sesiunea s-a schimbat. Reîncarcă pagina.');}
       const {error}=await authClient.auth.updateUser({password});
       if(error){alert.textContent='Parola nu a putut fi schimbată. Încearcă o parolă diferită sau cere un link nou.';return}
       if(isRecovery){
@@ -167,7 +197,7 @@ function showPasswordForm(isRecovery){
         await authClient.auth.signOut({scope:'local'});
         modal.close();login();notice('Parola a fost salvată. Conectează-te din nou.');
       } else {modal.close();notice('Parola a fost salvată.')}
-    } finally {e.submitter.disabled=false}
+    } catch(error){alert.textContent=error.message||'Contul nu a putut fi salvat. Reîncearcă.'} finally {e.submitter.disabled=false}
   };
 }
 function notice(text){toast.textContent=text;toast.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.hidden=true,2700)}
@@ -376,7 +406,7 @@ function historyView(){
   main.innerHTML='<h1>Istoric</h1><section class="panel">'+(history.map(b=>'<div class="history-row"><div><strong>'+safe(b.client)+'</strong><br><small>'+dateLabel(b.date,{day:'numeric',month:'short'})+' · '+time(b.start)+' · '+safe(b.service)+(b.status==='cancelled'?' · Anulată':'')+'</small></div><button data-booking="'+safe(b.id)+'">Detalii</button></div>').join('')||'<p class="muted">Istoricul este gol.</p>')+'</section>';
   bindBookings(main);
 }
-function openDialog(html){modal.innerHTML=html;if(!modal.open)modal.showModal();modal.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>modal.close())}
+function openDialog(html){modal.oncancel=null;modal.innerHTML=html;if(!modal.open)modal.showModal();modal.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>modal.close())}
 function editor(booking=null, start=null){
   const date=booking?.date||day;
   const duration=booking?.duration||Math.min(model.prefs.duration,90);
@@ -473,7 +503,7 @@ function settings(){
   main.innerHTML='<div class="title-row"><div><h1>Setări</h1><p class="muted">Versiunea aplicației · v'+appVersion+'</p></div><button id="refresh-settings" type="button">Actualizează</button></div><form class="stack" id="settings"><div class="settings-grid"><section class="panel stack"><h2>Program de lucru</h2>'+days.map((name,i)=>'<div class="schedule"><label class="check"><input type="checkbox" name="open'+i+'" '+(p.hours[i].open?'checked':'')+'>'+name+'</label><select name="start'+i+'" aria-label="'+name+' de la">'+options(times,p.hours[i].start)+'</select><select name="end'+i+'" aria-label="'+name+' până la">'+options(times,p.hours[i].end)+'</select></div>').join('')+'</section>'+
     '<section class="panel stack"><h2>Preferințe</h2><label>Durată implicită<select name="duration">'+options(durations.map(d=>[d,d+' min']),Math.min(p.duration,90))+'</select></label><label>Temă<select name="theme">'+options([['dark','Dark'],['light','Light']],p.theme)+'</select></label><label>Servicii (unul pe rând)<textarea name="services">'+safe(p.services)+'</textarea></label></section>'+
     '<section class="panel stack"><h2>Pauze</h2><label>Pauze recurente (HH:MM–HH:MM)<textarea name="pauses">'+safe(p.pauses)+'</textarea></label><h2>Concedii și zile libere</h2><div class="stack" id="leave-periods"></div><div><button type="button" id="add-leave">'+iconSvg('plus')+' Adaugă perioadă</button></div></section>'+
-    '<section class="panel stack"><h2>Cont</h2><label>Alias afișat<input name="display" value="'+safe(p.name)+'" maxlength="60" aria-describedby="alias-help"></label><small id="alias-help">Apare în antetul agendei. Dacă lași câmpul gol, se afișează numele contului.</small><p class="muted">E-mail: '+safe(accountEmail)+'</p><button id="changePassword" type="button">Schimbă parola</button></section></div><div class="error" role="alert"></div><div><button class="primary">Salvează setările</button></div></form>';
+    '<section class="panel stack"><h2>Cont</h2><label>Alias afișat<input name="display" required value="'+safe(p.name)+'" maxlength="60" aria-describedby="alias-help"></label><small id="alias-help">Apare în antetul agendei. Poți modifica aici aliasul ales la prima configurare.</small><p class="muted">E-mail: '+safe(accountEmail)+'</p><button id="changePassword" type="button">Schimbă parola</button></section></div><div class="error" role="alert"></div><div><button class="primary">Salvează setările</button></div></form>';
   const form=main.querySelector('form');
   form.addEventListener('input',()=>{settingsDirty=true});
   form.addEventListener('change',()=>{settingsDirty=true});
@@ -522,6 +552,7 @@ function settings(){
     if(bad){form.querySelector('.error').textContent='Verifică datele și intervalele. Orele trebuie să respecte pasul de 15 minute.';return}
     const settings={duration:Number(form.duration.value),theme:form.theme.value,services:form.services.value,pauses:form.pauses.value,off:off.join('\n'),hours};
     const alias=form.display.value.trim();
+    if(!alias||Array.from(alias).length>60){form.querySelector('.error').textContent='Completează un alias de maximum 60 de caractere.';return}
     e.submitter.disabled=true;
     const {error}=await database.from('profiles').update({alias,settings}).eq('user_id',user).select('user_id').single();
     e.submitter.disabled=false;
@@ -648,10 +679,10 @@ if(authClient){
   recovery=linkType==='recovery'||linkType==='invite'||new URLSearchParams(location.search).get('type')==='invite';
   authClient.auth.onAuthStateChange((event,session)=>{
     if(event==='PASSWORD_RECOVERY') recovery=true;
-    if(event==='INITIAL_SESSION' || event==='PASSWORD_RECOVERY'){
+    if(event==='INITIAL_SESSION' || event==='PASSWORD_RECOVERY' || event==='SIGNED_IN'){
       if(!session) return;
       setTimeout(()=>{
-        if(recovery){if(!modal.open)showPasswordForm(true);return}
+        if(recovery){if(!modal.open)preparePasswordSetup(session).catch(error=>notice(error.message));return}
         loadAccount(session).catch(error=>notice(error.message));
       },0);
     }
